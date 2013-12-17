@@ -1,0 +1,113 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+import os
+import sys
+import webbrowser
+
+sys.path.append("modules")
+
+import xml_dom
+import database
+import mail
+import html
+import utility
+
+import setting
+
+MAC_OS_ENV=True
+
+try:
+	import ic
+except:
+	MAC_OS_ENV=False
+
+# 地址列表
+ADDR_LISTS=setting.ADDR_LISTS
+# 数据库文件地址
+DB_FILE=setting.DB_FILE
+# XML文件存储地址
+FILENAME=setting.FILENAME
+
+PARA_LISTS=setting.PARA_LISTS
+
+# 提取邮件
+# ----------------------------------------------
+
+def receive_mails(mailbox):
+	# 获取邮箱信息
+	server_addr=mailbox[0]
+	username=mailbox[1]
+	password=mailbox[2]
+	
+	# 获取已经下载的邮件列表（从数据库）
+	db=database.DatabaseHandler(DB_FILE)
+	received_mail_list=db.getReceivedMailsIdList(username)
+	
+	print '已存储的邮件数:' + str(len(received_mail_list))
+	# print received_mail_list
+	# 获取所有邮件列表（从服务器）
+	m=mail.MailHandler(server_addr,username,password)
+	m.login()
+	mail_list=m.getMailList()
+	
+	print '服务器上的邮件数:' + str(len(mail_list))
+	# print mail_list
+	# 计算更新的邮件列表
+	mail_list=list(set(mail_list)-set(received_mail_list))
+	# print mail_list
+	
+	mail_list.sort()
+	print '需要下载的邮件数:' + str(len(mail_list))
+	count=0
+	total=len(mail_list)
+	print "开始下载邮件."
+	print "---------------"
+	for mail_no in mail_list:
+		count+=1
+		print '--> [{per}%]正在提取编号为'.format(\
+										per=count*100/total) + str(mail_no) + '的邮件..'
+		result=m.getAll(mail_no)
+		if result == -1:
+			print '  --> 邮件提取失败，邮件编号:' + mail_no
+		else:
+			if result == -2:
+				print '  --> 发现垃圾邮件，已跳过'
+			else:
+				print '  --> 邮件提取成功,正在存储'
+				db.saveMail(result)
+	db.close()
+		
+# ----------------------------------------------
+
+def openurl(url):
+	if MAC_OS_ENV:
+		ic.launchurl("file://localhost" + os.path.abspath(os.path.dirname(sys.argv[0])) + "/" + url)
+	else:
+		webbrowser.open(url)
+
+
+if __name__=='__main__':
+	print 'Mail Receiver'
+	print '========================================='
+	global mailbox_count, mailbox_total
+	mailbox_total=len(ADDR_LISTS)
+	mailbox_count=0
+	if mailbox_total==0:
+		print '请按要求填写设置文件。'
+		exit()
+	for addr_list in ADDR_LISTS:
+		mailbox_count+=1
+		print '({count}/{total})正在处理'.format(count=mailbox_count,total=mailbox_total) + addr_list[1] + '邮箱中的邮件...'
+		print '-----------------------------------------'
+		receive_mails(addr_list)
+	print '========================================='
+	print '所有邮件处理成功。'
+	
+	# 输出HTML文件
+	print '正在输出HTML文件..'
+	html.exportMails(ADDR_LISTS)
+	openurl("output.html")
+	
+	
+	
